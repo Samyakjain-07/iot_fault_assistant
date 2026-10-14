@@ -7,6 +7,7 @@ swapped later without touching callers. Schema follows
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -145,6 +146,63 @@ def get_anomaly_events(
     sql = "SELECT * FROM anomaly_events ORDER BY id DESC LIMIT ?"
     with closing(get_connection(db_path)) as conn:
         return [dict(row) for row in conn.execute(sql, (limit,))]
+
+
+def insert_diagnosis(
+    anomaly_event_id: int,
+    timestamp: str,
+    query_text: str,
+    retrieved_chunk_ids: list[str],
+    llm_answer: str,
+    confidence_flag: str,
+    db_path: str | Path | None = None,
+) -> int:
+    """Insert one ``diagnosis_log`` row; return its id.
+
+    ``retrieved_chunk_ids`` is stored as a JSON list, in retrieval order.
+    ``confidence_flag`` must be ``grounded`` or ``low_confidence`` and
+    ``anomaly_event_id`` an existing ``anomaly_events`` row (both enforced by
+    the schema).
+    """
+    sql = (
+        "INSERT INTO diagnosis_log "
+        "(anomaly_event_id, timestamp, query_text, retrieved_chunk_ids, "
+        "llm_answer, confidence_flag) VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    values = (
+        anomaly_event_id,
+        timestamp,
+        query_text,
+        json.dumps(retrieved_chunk_ids),
+        llm_answer,
+        confidence_flag,
+    )
+    with closing(get_connection(db_path)) as conn, conn:
+        return conn.execute(sql, values).lastrowid
+
+
+def get_diagnoses(
+    limit: int = 100,
+    anomaly_event_id: int | None = None,
+    db_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Return the most recent ``diagnosis_log`` rows, newest first.
+
+    ``retrieved_chunk_ids`` is decoded back into a list. Optionally
+    restricted to one anomaly event.
+    """
+    sql = "SELECT * FROM diagnosis_log"
+    params: list[Any] = []
+    if anomaly_event_id is not None:
+        sql += " WHERE anomaly_event_id = ?"
+        params.append(anomaly_event_id)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    with closing(get_connection(db_path)) as conn:
+        rows = [dict(row) for row in conn.execute(sql, params)]
+    for row in rows:
+        row["retrieved_chunk_ids"] = json.loads(row["retrieved_chunk_ids"])
+    return rows
 
 
 def count_telemetry(db_path: str | Path | None = None) -> int:

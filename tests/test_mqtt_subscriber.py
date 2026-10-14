@@ -4,15 +4,25 @@ import random
 import pytest
 
 from src.anomaly_detector import train
-from src.database import count_telemetry, get_anomaly_events, get_telemetry, init_db
+from src.database import (
+    count_telemetry,
+    get_anomaly_events,
+    get_diagnoses,
+    get_telemetry,
+    init_db,
+)
+from src.diagnosis_service import diagnose
 from src.feature_engineering import build_feature_matrix
+from src.llm_service import LLMError
 from src.mqtt_publisher import generate_reading
 from src.mqtt_subscriber import (
     handle_message,
     load_predictor,
+    run_diagnosis,
     validate_telemetry,
 )
 from src.prediction_service import Prediction, PredictionService
+from src.rag.retriever import retrieve
 
 
 def _payload(**overrides):
@@ -229,6 +239,95 @@ def test_injected_faults_are_flagged_end_to_end(db_file, predictor):
     flagged = len(get_anomaly_events(limit=1000, db_path=db_file))
     assert count_telemetry(db_file) == 10 * len(FAULT_SCENARIOS)
     assert flagged >= 0.7 * count_telemetry(db_file)
+
+
+# --- diagnosis wiring ----------------------------------------------------
+
+
+def test_anomaly_triggers_diagnoser_with_reading_and_event_id(db_file):
+    calls = []
+
+    handle_message(
+        json.dumps(_payload()),
+        db_file,
+        _AlwaysAnomaly(),
+        lambda reading, event_id: calls.append((reading, event_id)),
+    )
+
+    event_id = get_anomaly_events(db_path=db_file)[0]["id"]
+    assert calls == [(_payload(), event_id)]
+
+
+def test_normal_reading_does_not_trigger_diagnoser(db_file, predictor):
+    calls = []
+
+    handle_message(
+        json.dumps(_payload(power_kw=7.73)),
+        db_file,
+        predictor,
+        lambda *args: calls.append(args),
+    )
+
+    assert calls == []
+
+
+def test_diagnoser_failure_does_not_stop_ingestion(db_file, caplog):
+    def broken(_reading, _event_id):
+        raise RuntimeError("boom")
+
+    row_id = handle_message(json.dumps(_payload()), db_file, _AlwaysAnomaly(), broken)
+
+    assert row_id == 1
+    assert len(get_anomaly_events(db_path=db_file)) == 1
+    assert "could not start diagnosis" in caplog.text
+
+
+def test_injected_high_temperature_fault_produces_a_grounded_diagnosis_row(
+    db_file, predictor, manual_store
+):
+    """Generator -> detector -> retriever -> (stubbed) LLM -> diagnosis_log."""
+    # Seed 1 is a high-temperature reading the fixture predictor flags (the
+    # detector catches only some of them, so the seed is chosen deliberately).
+    reading = generate_reading("MOTOR-001", random.Random(1), "high_temperature")
+    prompts = []
+
+    def stub_llm(prompt):
+        prompts.append(prompt)
+        return (
+            "Temperature is high while current is normal: check ventilation.\n"
+            "Source: motor_fault_reference.md § High Temperature"
+        )
+
+    def diagnoser(flagged, event_id):
+        diagnose(
+            flagged,
+            event_id,
+            db_file,
+            store_path=manual_store,
+            generate_fn=stub_llm,
+        )
+
+    handle_message(json.dumps(reading), db_file, predictor, diagnoser)
+
+    [event] = get_anomaly_events(db_path=db_file)
+    [row] = get_diagnoses(db_path=db_file)
+    returned = retrieve(row["query_text"], store_path=manual_store)
+    assert row["anomaly_event_id"] == event["id"]
+    assert row["retrieved_chunk_ids"] == [c.chunk_id for c in returned]
+    assert "High Temperature" in row["llm_answer"]
+    assert row["confidence_flag"] == "grounded"
+    assert len(prompts) == 1
+
+
+def test_run_diagnosis_logs_failures_instead_of_raising(monkeypatch, caplog):
+    def failing(*_args, **_kwargs):
+        raise LLMError("ollama down")
+
+    monkeypatch.setattr("src.mqtt_subscriber.diagnose", failing)
+
+    run_diagnosis(_payload(), 7)
+
+    assert "diagnosis failed for anomaly_event 7" in caplog.text
 
 
 def test_load_predictor_returns_none_without_a_model(monkeypatch, caplog):

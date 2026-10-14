@@ -7,9 +7,11 @@ from src.database import (
     count_telemetry,
     get_anomaly_events,
     get_connection,
+    get_diagnoses,
     get_telemetry,
     init_db,
     insert_anomaly_event,
+    insert_diagnosis,
     insert_telemetry,
 )
 
@@ -215,3 +217,66 @@ def test_insert_anomaly_event_rejects_unknown_telemetry_id(tmp_path):
         insert_anomaly_event(
             99, "MOTOR-001", "2026-01-01T00:00:00Z", "ANOMALY", -0.5, db_file
         )
+
+
+def _event(db_file):
+    telemetry_id = insert_telemetry(_reading(), db_file)
+    return insert_anomaly_event(
+        telemetry_id, "MOTOR-001", "2026-01-01T00:00:00Z", "ANOMALY", -0.7, db_file
+    )
+
+
+def test_insert_diagnosis_round_trips_chunk_ids_as_list(tmp_path):
+    db_file = tmp_path / "app.db"
+    init_db(db_file)
+    event_id = _event(db_file)
+
+    diagnosis_id = insert_diagnosis(
+        event_id,
+        "2026-01-01T00:00:01Z",
+        "motor running hot",
+        ["manual::high-temperature::0", "manual::high-current::0"],
+        "Check airflow.",
+        "grounded",
+        db_file,
+    )
+
+    assert diagnosis_id == 1
+    assert get_diagnoses(db_path=db_file) == [
+        {
+            "id": 1,
+            "anomaly_event_id": event_id,
+            "timestamp": "2026-01-01T00:00:01Z",
+            "query_text": "motor running hot",
+            "retrieved_chunk_ids": [
+                "manual::high-temperature::0",
+                "manual::high-current::0",
+            ],
+            "llm_answer": "Check airflow.",
+            "confidence_flag": "grounded",
+        }
+    ]
+
+
+def test_get_diagnoses_newest_first_with_event_filter(tmp_path):
+    db_file = tmp_path / "app.db"
+    init_db(db_file)
+    first, second = _event(db_file), _event(db_file)
+    for event_id in (first, second, first):
+        insert_diagnosis(event_id, "t", "q", [], "a", "low_confidence", db_file)
+
+    assert [d["id"] for d in get_diagnoses(db_path=db_file)] == [3, 2, 1]
+    for_first = get_diagnoses(anomaly_event_id=first, db_path=db_file)
+    assert [d["id"] for d in for_first] == [3, 1]
+    assert len(get_diagnoses(limit=1, db_path=db_file)) == 1
+
+
+def test_insert_diagnosis_enforces_foreign_key_and_confidence_flag(tmp_path):
+    db_file = tmp_path / "app.db"
+    init_db(db_file)
+    event_id = _event(db_file)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        insert_diagnosis(99, "t", "q", [], "a", "grounded", db_file)
+    with pytest.raises(sqlite3.IntegrityError):
+        insert_diagnosis(event_id, "t", "q", [], "a", "sure", db_file)

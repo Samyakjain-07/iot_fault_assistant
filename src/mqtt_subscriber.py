@@ -2,8 +2,9 @@
 
 Subscribes to the telemetry topic, validates each message, writes it to the
 ``telemetry`` table, and scores it with the anomaly detector; readings flagged
-ANOMALY are written to ``anomaly_events``. Diagnosis (a later phase) hooks into
-:func:`handle_message`.
+ANOMALY are written to ``anomaly_events``, and each one is then diagnosed
+(RAG + LLM) in a background thread, with the answer logged to
+``diagnosis_log``.
 
 Run with ``python -m src.mqtt_subscriber``.
 """
@@ -14,6 +15,8 @@ import json
 import logging
 import math
 import sqlite3
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -26,10 +29,14 @@ from src.database import (
     insert_anomaly_event,
     insert_telemetry,
 )
+from src.diagnosis_service import diagnose
 from src.prediction_service import PredictionService
 from src.utils import create_mqtt_client
 
 logger = logging.getLogger(__name__)
+
+# Called with (reading, anomaly_event_id) for every reading flagged ANOMALY.
+Diagnoser = Callable[[dict[str, Any], int], object]
 
 
 def validate_telemetry(payload: bytes | str) -> dict[str, Any]:
@@ -72,17 +79,41 @@ def validate_telemetry(payload: bytes | str) -> dict[str, Any]:
     return {name: message[name] for name in TELEMETRY_COLUMNS}
 
 
+def run_diagnosis(
+    reading: dict[str, Any], anomaly_event_id: int, db_path: str | Path | None = None
+) -> None:
+    """Diagnose one flagged reading, logging (never raising) any failure.
+
+    A failed diagnosis (Ollama down, vector store not built, ...) writes no
+    ``diagnosis_log`` row: there is no grounded answer to record.
+    """
+    try:
+        diagnosis = diagnose(reading, anomaly_event_id, db_path)
+    except Exception:  # noqa: BLE001 - one failed diagnosis must not stop ingestion
+        logger.exception("diagnosis failed for anomaly_event %s", anomaly_event_id)
+        return
+    logger.info(
+        "diagnosis id=%s for anomaly_event %s (%s, cited: %s)",
+        diagnosis.diagnosis_id,
+        anomaly_event_id,
+        diagnosis.confidence_flag,
+        ", ".join(diagnosis.cited_sections) or "none",
+    )
+
+
 def detect_anomaly(
     reading: dict[str, Any],
     telemetry_id: int,
     predictor: PredictionService,
     db_path: str | Path | None = None,
+    diagnoser: Diagnoser | None = None,
 ) -> bool:
     """Score a stored reading; if it is an ANOMALY, record it in ``anomaly_events``.
 
     Only flagged readings are written. Returns whether the reading was
     flagged. A database failure is logged and the reading is reported as not
-    flagged, so it never interrupts ingestion.
+    flagged, so it never interrupts ingestion. If a ``diagnoser`` is given it
+    is called with ``(reading, anomaly_event_id)`` for each flagged reading.
     """
     prediction = predictor.predict(reading)
     if not prediction.is_anomaly:
@@ -106,6 +137,11 @@ def detect_anomaly(
         prediction.score,
         reading,
     )
+    if diagnoser is not None:
+        try:
+            diagnoser(reading, event_id)
+        except Exception:  # noqa: BLE001 - never let diagnosis interrupt ingestion
+            logger.exception("could not start diagnosis for anomaly_event %s", event_id)
     return True
 
 
@@ -113,13 +149,15 @@ def handle_message(
     payload: bytes | str,
     db_path: str | Path | None = None,
     predictor: PredictionService | None = None,
+    diagnoser: Diagnoser | None = None,
 ) -> int | None:
     """Validate one telemetry message, store it, and run anomaly detection.
 
     Detection runs only when a ``predictor`` is given; flagged readings are
-    written to ``anomaly_events``. Returns the new ``telemetry`` row id, or
-    ``None`` if the message was invalid or could not be written. Never raises
-    for bad input -- one bad message must not stop the subscriber.
+    written to ``anomaly_events`` and, if a ``diagnoser`` is given, handed to
+    it. Returns the new ``telemetry`` row id, or ``None`` if the message was
+    invalid or could not be written. Never raises for bad input -- one bad
+    message must not stop the subscriber.
     """
     try:
         reading = validate_telemetry(payload)
@@ -133,7 +171,7 @@ def handle_message(
         return None
     logger.info("stored telemetry id=%s: %s", row_id, reading)
     if predictor is not None:
-        detect_anomaly(reading, row_id, predictor, db_path)
+        detect_anomaly(reading, row_id, predictor, db_path, diagnoser)
     return row_id
 
 
@@ -161,6 +199,13 @@ def run_subscriber(
     config = config or get_config()
     init_db(db_path)
     predictor = load_predictor()
+    # One worker: LLM calls take seconds, so they run off the MQTT network
+    # thread, one at a time so a fault burst doesn't flood a local model.
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="diagnosis")
+
+    def diagnoser(reading: dict[str, Any], anomaly_event_id: int) -> None:
+        executor.submit(run_diagnosis, reading, anomaly_event_id, db_path)
+
     topic = config.topics["telemetry"]
     device_id = config.data["project"]["device_id"]
     refused: list[str] = []
@@ -178,7 +223,7 @@ def run_subscriber(
         logger.info("subscribed to %s", topic)
 
     def on_message(_client, _userdata, message):
-        handle_message(message.payload, db_path, predictor)
+        handle_message(message.payload, db_path, predictor, diagnoser)
 
     client.on_connect = on_connect
     client.on_message = on_message
@@ -196,6 +241,7 @@ def run_subscriber(
         logger.info("interrupted, shutting down")
     finally:
         client.disconnect()
+        executor.shutdown(wait=False, cancel_futures=True)
     if refused:
         raise ConnectionError(f"Broker refused the connection: {refused[0]}")
 
