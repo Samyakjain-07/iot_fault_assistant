@@ -3,9 +3,16 @@ import random
 
 import pytest
 
-from src.database import count_telemetry, get_telemetry, init_db
+from src.anomaly_detector import train
+from src.database import count_telemetry, get_anomaly_events, get_telemetry, init_db
+from src.feature_engineering import build_feature_matrix
 from src.mqtt_publisher import generate_reading
-from src.mqtt_subscriber import handle_message, validate_telemetry
+from src.mqtt_subscriber import (
+    handle_message,
+    load_predictor,
+    validate_telemetry,
+)
+from src.prediction_service import Prediction, PredictionService
 
 
 def _payload(**overrides):
@@ -150,3 +157,85 @@ def test_publisher_output_passes_subscriber_validation(db_file):
         assert handle_message(payload, db_file) is not None
 
     assert count_telemetry(db_file) == 1 + len(FAULT_SCENARIOS)
+
+
+# --- anomaly detection wiring --------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def predictor():
+    rng = random.Random(0)
+    readings = [generate_reading("MOTOR-001", rng) for _ in range(800)]
+    model = train(build_feature_matrix(readings), contamination=0.05, random_state=0)
+    return PredictionService(model)
+
+
+class _AlwaysAnomaly:
+    def predict(self, reading):
+        return Prediction("ANOMALY", -0.9)
+
+
+def test_anomalous_reading_is_written_to_anomaly_events(db_file, predictor):
+    faulty = _payload(temperature=150.0, current=30.0, voltage=520.0)
+
+    telemetry_id = handle_message(json.dumps(faulty), db_file, predictor)
+
+    events = get_anomaly_events(db_path=db_file)
+    assert len(events) == 1
+    assert events[0]["telemetry_id"] == telemetry_id
+    assert events[0]["device_id"] == "MOTOR-001"
+    assert events[0]["timestamp"] == faulty["timestamp"]
+    assert events[0]["prediction"] == "ANOMALY"
+    assert events[0]["anomaly_score"] < 0
+
+
+def test_normal_reading_is_stored_but_not_flagged(db_file, predictor):
+    handle_message(json.dumps(_payload(power_kw=7.73)), db_file, predictor)
+
+    assert count_telemetry(db_file) == 1
+    assert get_anomaly_events(db_path=db_file) == []
+
+
+def test_no_predictor_means_no_detection(db_file):
+    faulty = _payload(temperature=150.0, current=30.0, voltage=520.0)
+
+    assert handle_message(json.dumps(faulty), db_file) is not None
+    assert get_anomaly_events(db_path=db_file) == []
+
+
+def test_invalid_message_is_not_scored(db_file):
+    assert handle_message("garbage", db_file, _AlwaysAnomaly()) is None
+    assert get_anomaly_events(db_path=db_file) == []
+
+
+def test_anomaly_event_links_to_its_own_telemetry_row(db_file):
+    handle_message(json.dumps(_payload()), db_file)  # row 1, no detection
+    second = handle_message(json.dumps(_payload()), db_file, _AlwaysAnomaly())
+
+    assert second == 2
+    assert get_anomaly_events(db_path=db_file)[0]["telemetry_id"] == 2
+
+
+def test_injected_faults_are_flagged_end_to_end(db_file, predictor):
+    """Generator output -> subscriber -> anomaly_events, for each fault type."""
+    from src.mqtt_publisher import FAULT_SCENARIOS
+
+    rng = random.Random(1)
+    for fault in FAULT_SCENARIOS:
+        for _ in range(10):
+            payload = json.dumps(generate_reading("MOTOR-001", rng, fault))
+            handle_message(payload, db_file, predictor)
+
+    flagged = len(get_anomaly_events(limit=1000, db_path=db_file))
+    assert count_telemetry(db_file) == 10 * len(FAULT_SCENARIOS)
+    assert flagged >= 0.7 * count_telemetry(db_file)
+
+
+def test_load_predictor_returns_none_without_a_model(monkeypatch, caplog):
+    def missing(*_args, **_kwargs):
+        raise FileNotFoundError("no model")
+
+    monkeypatch.setattr(PredictionService, "load", missing)
+
+    assert load_predictor() is None
+    assert "anomaly detection disabled" in caplog.text

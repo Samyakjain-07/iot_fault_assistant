@@ -1,8 +1,9 @@
 """MQTT subscriber: ingests telemetry from EMQX Cloud into SQLite.
 
-Phase 2 scope: subscribe to the telemetry topic, validate each message, and
-write it to the ``telemetry`` table. Later phases hook anomaly detection and
-diagnosis into :func:`handle_message`.
+Subscribes to the telemetry topic, validates each message, writes it to the
+``telemetry`` table, and scores it with the anomaly detector; readings flagged
+ANOMALY are written to ``anomaly_events``. Diagnosis (a later phase) hooks into
+:func:`handle_message`.
 
 Run with ``python -m src.mqtt_subscriber``.
 """
@@ -18,7 +19,14 @@ from pathlib import Path
 from typing import Any
 
 from src.config import Config, get_config
-from src.database import TELEMETRY_COLUMNS, TELEMETRY_FIELDS, init_db, insert_telemetry
+from src.database import (
+    TELEMETRY_COLUMNS,
+    TELEMETRY_FIELDS,
+    init_db,
+    insert_anomaly_event,
+    insert_telemetry,
+)
+from src.prediction_service import PredictionService
 from src.utils import create_mqtt_client
 
 logger = logging.getLogger(__name__)
@@ -64,14 +72,54 @@ def validate_telemetry(payload: bytes | str) -> dict[str, Any]:
     return {name: message[name] for name in TELEMETRY_COLUMNS}
 
 
-def handle_message(
-    payload: bytes | str, db_path: str | Path | None = None
-) -> int | None:
-    """Validate one telemetry message and store it.
+def detect_anomaly(
+    reading: dict[str, Any],
+    telemetry_id: int,
+    predictor: PredictionService,
+    db_path: str | Path | None = None,
+) -> bool:
+    """Score a stored reading; if it is an ANOMALY, record it in ``anomaly_events``.
 
-    Returns the new ``telemetry`` row id, or ``None`` if the message was
-    invalid or could not be written. Never raises for bad input -- one bad
-    message must not stop the subscriber.
+    Only flagged readings are written. Returns whether the reading was
+    flagged. A database failure is logged and the reading is reported as not
+    flagged, so it never interrupts ingestion.
+    """
+    prediction = predictor.predict(reading)
+    if not prediction.is_anomaly:
+        return False
+    try:
+        event_id = insert_anomaly_event(
+            telemetry_id,
+            reading["device_id"],
+            reading["timestamp"],
+            prediction.label,
+            prediction.score,
+            db_path,
+        )
+    except sqlite3.Error:
+        logger.exception("failed to store anomaly event for telemetry %s", telemetry_id)
+        return False
+    logger.warning(
+        "ANOMALY anomaly_event id=%s telemetry id=%s score=%.3f: %s",
+        event_id,
+        telemetry_id,
+        prediction.score,
+        reading,
+    )
+    return True
+
+
+def handle_message(
+    payload: bytes | str,
+    db_path: str | Path | None = None,
+    predictor: PredictionService | None = None,
+) -> int | None:
+    """Validate one telemetry message, store it, and run anomaly detection.
+
+    Detection runs only when a ``predictor`` is given; flagged readings are
+    written to ``anomaly_events``. Returns the new ``telemetry`` row id, or
+    ``None`` if the message was invalid or could not be written. Never raises
+    for bad input -- one bad message must not stop the subscriber.
     """
     try:
         reading = validate_telemetry(payload)
@@ -84,7 +132,22 @@ def handle_message(
         logger.exception("failed to store telemetry")
         return None
     logger.info("stored telemetry id=%s: %s", row_id, reading)
+    if predictor is not None:
+        detect_anomaly(reading, row_id, predictor, db_path)
     return row_id
+
+
+def load_predictor() -> PredictionService | None:
+    """Load the trained model, or return ``None`` (and warn) if there isn't one.
+
+    A missing model degrades the subscriber to ingest-only rather than
+    stopping it.
+    """
+    try:
+        return PredictionService.load()
+    except FileNotFoundError as exc:
+        logger.warning("anomaly detection disabled: %s", exc)
+        return None
 
 
 def run_subscriber(
@@ -97,6 +160,7 @@ def run_subscriber(
     """
     config = config or get_config()
     init_db(db_path)
+    predictor = load_predictor()
     topic = config.topics["telemetry"]
     device_id = config.data["project"]["device_id"]
     refused: list[str] = []
@@ -114,7 +178,7 @@ def run_subscriber(
         logger.info("subscribed to %s", topic)
 
     def on_message(_client, _userdata, message):
-        handle_message(message.payload, db_path)
+        handle_message(message.payload, db_path, predictor)
 
     client.on_connect = on_connect
     client.on_message = on_message

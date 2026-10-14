@@ -115,6 +115,38 @@ def get_telemetry(
         return [dict(row) for row in conn.execute(sql, params)]
 
 
+def insert_anomaly_event(
+    telemetry_id: int,
+    device_id: str,
+    timestamp: str,
+    prediction: str,
+    anomaly_score: float,
+    db_path: str | Path | None = None,
+) -> int:
+    """Insert one ``anomaly_events`` row for a scored reading; return its id.
+
+    ``prediction`` must be ``NORMAL`` or ``ANOMALY`` and ``telemetry_id`` an
+    existing ``telemetry`` row (both enforced by the schema).
+    """
+    sql = (
+        "INSERT INTO anomaly_events "
+        "(telemetry_id, device_id, timestamp, prediction, anomaly_score) "
+        "VALUES (?, ?, ?, ?, ?)"
+    )
+    values = (telemetry_id, device_id, timestamp, prediction, anomaly_score)
+    with closing(get_connection(db_path)) as conn, conn:
+        return conn.execute(sql, values).lastrowid
+
+
+def get_anomaly_events(
+    limit: int = 100, db_path: str | Path | None = None
+) -> list[dict[str, Any]]:
+    """Return the most recent ``anomaly_events`` rows, newest first."""
+    sql = "SELECT * FROM anomaly_events ORDER BY id DESC LIMIT ?"
+    with closing(get_connection(db_path)) as conn:
+        return [dict(row) for row in conn.execute(sql, (limit,))]
+
+
 def count_telemetry(db_path: str | Path | None = None) -> int:
     """Return the number of rows in the ``telemetry`` table."""
     with closing(get_connection(db_path)) as conn:

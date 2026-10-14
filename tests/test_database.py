@@ -5,9 +5,11 @@ import pytest
 
 from src.database import (
     count_telemetry,
+    get_anomaly_events,
     get_connection,
     get_telemetry,
     init_db,
+    insert_anomaly_event,
     insert_telemetry,
 )
 
@@ -176,3 +178,40 @@ def test_insert_telemetry_requires_all_fields(tmp_path):
 
     with pytest.raises(KeyError):
         insert_telemetry(incomplete, db_file)
+
+
+def test_insert_anomaly_event_round_trips_newest_first(tmp_path):
+    db_file = tmp_path / "app.db"
+    init_db(db_file)
+    first = insert_telemetry(_reading(), db_file)
+    second = insert_telemetry(_reading(timestamp="2026-01-01T00:00:05Z"), db_file)
+
+    insert_anomaly_event(
+        first, "MOTOR-001", "2026-01-01T00:00:00Z", "ANOMALY", -0.7, db_file
+    )
+    event_id = insert_anomaly_event(
+        second, "MOTOR-001", "2026-01-01T00:00:05Z", "ANOMALY", -0.6, db_file
+    )
+
+    events = get_anomaly_events(db_path=db_file)
+    assert event_id == 2
+    assert [e["telemetry_id"] for e in events] == [second, first]
+    assert events[0] == {
+        "id": 2,
+        "telemetry_id": second,
+        "device_id": "MOTOR-001",
+        "timestamp": "2026-01-01T00:00:05Z",
+        "prediction": "ANOMALY",
+        "anomaly_score": -0.6,
+    }
+    assert len(get_anomaly_events(limit=1, db_path=db_file)) == 1
+
+
+def test_insert_anomaly_event_rejects_unknown_telemetry_id(tmp_path):
+    db_file = tmp_path / "app.db"
+    init_db(db_file)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        insert_anomaly_event(
+            99, "MOTOR-001", "2026-01-01T00:00:00Z", "ANOMALY", -0.5, db_file
+        )
