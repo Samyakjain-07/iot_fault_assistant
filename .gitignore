@@ -1,0 +1,19 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Data / model artifacts
+database/*.db
+models/*.joblib
+rag_store/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

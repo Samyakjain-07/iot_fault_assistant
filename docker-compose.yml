@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./database:/app/database
+      - ./models:/app/models
+      - ./rag_store:/app/rag_store
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./database:/var/lib/grafana-sqlite-source
+    environment:
+      - GF_INSTALL_PLUGINS=frser-sqlite-datasource
+    depends_on:
+      - app

@@ -1,0 +1,9 @@
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "SIM", "TRY", "BLE"]
+ignore = ["C408", "TRY003"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
