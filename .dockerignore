@@ -1,0 +1,17 @@
+# Secrets must never be baked into the image -- pass them at runtime
+# (docker-compose uses env_file).
+.env
+
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+
+# Runtime artifacts are mounted as volumes, not copied
+database/*.db
+models/*.joblib
+rag_store
