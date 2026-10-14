@@ -9,6 +9,7 @@ from src.database import (
     get_connection,
     get_diagnoses,
     get_telemetry,
+    get_telemetry_by_id,
     init_db,
     insert_anomaly_event,
     insert_diagnosis,
@@ -280,3 +281,15 @@ def test_insert_diagnosis_enforces_foreign_key_and_confidence_flag(tmp_path):
         insert_diagnosis(99, "t", "q", [], "a", "grounded", db_file)
     with pytest.raises(sqlite3.IntegrityError):
         insert_diagnosis(event_id, "t", "q", [], "a", "sure", db_file)
+
+
+def test_get_telemetry_by_id_returns_the_row_or_none(tmp_path):
+    db_file = tmp_path / "app.db"
+    init_db(db_file)
+    row_id = insert_telemetry(_reading(voltage=431.5), db_file)
+
+    row = get_telemetry_by_id(row_id, db_file)
+
+    assert row["id"] == row_id
+    assert row["voltage"] == 431.5
+    assert get_telemetry_by_id(row_id + 1, db_file) is None

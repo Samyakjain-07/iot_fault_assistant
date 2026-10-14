@@ -116,6 +116,17 @@ def get_telemetry(
         return [dict(row) for row in conn.execute(sql, params)]
 
 
+def get_telemetry_by_id(
+    telemetry_id: int, db_path: str | Path | None = None
+) -> dict[str, Any] | None:
+    """Return one telemetry row by id, or ``None`` if there is no such row."""
+    with closing(get_connection(db_path)) as conn:
+        row = conn.execute(
+            "SELECT * FROM telemetry WHERE id = ?", (telemetry_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def insert_anomaly_event(
     telemetry_id: int,
     device_id: str,

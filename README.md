@@ -21,7 +21,28 @@ cp .env.example .env              # then fill in your EMQX Cloud credentials
 See `docs/03_ROADMAP.md` for the build order — this repo is meant to be built
 phase by phase with Claude Code, not all at once.
 
+## Running the dashboards
+
+Needs Docker, a filled-in `.env`, a trained model (`models/isolation_forest.joblib`),
+a built vector store (`rag_store/`) and Ollama running on the host with
+`llama3.2:3b` pulled.
+
+```bash
+docker compose up --build
+```
+
+This starts the simulated motor (publisher), the subscriber that stores and
+scores its readings, and two dashboards:
+
+- Streamlit (live view, anomaly list, diagnosis chat): http://localhost:8501
+  (set `APP_PORT` if 8501 is taken)
+- Grafana (Motor Telemetry dashboard, login `admin` / `admin`): http://localhost:3000
+
+Without Docker: `streamlit run dashboard/app.py`, with the subscriber
+(`python -m src.mqtt_subscriber`) and publisher
+(`python scripts/generate_telemetry.py`) running in other terminals.
+
 ## Status
 
-Scaffold only — no application code yet. Phase 1 (project & DevOps setup) is
-the first thing to build.
+Phases 1-9 are built (data foundation through the dashboards). Phase 10
+(containerize and deploy to AWS) is next.

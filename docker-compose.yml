@@ -1,14 +1,48 @@
+# app, subscriber and publisher are one image run three ways; `docker compose up`
+# starts the whole pipeline (simulated motor -> EMQX Cloud -> SQLite) plus the
+# two dashboards: Streamlit on :8501, Grafana on :3000 (admin / admin).
+x-python-service: &python-service
+  build: .
+  image: iot-fault-assistant:latest
+  env_file:
+    - .env
+  environment:
+    # .env says localhost, which inside a container is the container itself.
+    # Ollama runs on the host, so reach it through the host gateway.
+    OLLAMA_HOST: http://host.docker.internal:11434
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  volumes:
+    - ./database:/app/database
+    - ./models:/app/models
+    - ./rag_store:/app/rag_store
+    # Keeps the embedding model across restarts instead of re-downloading it.
+    - hf_cache:/root/.cache/huggingface
+
 services:
   app:
-    build: .
+    <<: *python-service
     ports:
-      - "8501:8501"
-    env_file:
-      - .env
-    volumes:
-      - ./database:/app/database
-      - ./models:/app/models
-      - ./rag_store:/app/rag_store
+      # Set APP_PORT in .env or the shell if 8501 is taken on your machine.
+      - "${APP_PORT:-8501}:8501"
+
+  subscriber:
+    <<: *python-service
+    command: ["python", "-m", "src.mqtt_subscriber"]
+    restart: unless-stopped
+
+  # Demo data: healthy readings, then a short high-temperature fault so there
+  # are anomalies to diagnose. Edit the flags (see scripts/generate_telemetry.py)
+  # to inject a different fault, or drop them for healthy readings only.
+  publisher:
+    <<: *python-service
+    command:
+      - python
+      - scripts/generate_telemetry.py
+      - --fault=high_temperature
+      - --fault-after=20
+      - --fault-count=10
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:11.3.0
@@ -19,5 +53,9 @@ services:
       - ./database:/var/lib/grafana-sqlite-source
     environment:
       - GF_INSTALL_PLUGINS=frser-sqlite-datasource
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/motor_telemetry.json
     depends_on:
       - app
+
+volumes:
+  hf_cache:

@@ -23,6 +23,39 @@ class RetrievedChunk:
     score: float
 
 
+def get_chunks(
+    chunk_ids: list[str], store_path: Path | None = None
+) -> list[dict[str, str]]:
+    """Look chunks up by id (e.g. those recorded in ``diagnosis_log``).
+
+    Returns ``chunk_id`` / ``text`` / ``source`` / ``section`` dicts in the
+    order of ``chunk_ids``; ids no longer in the store are skipped. Raises
+    ``RuntimeError`` if the store has not been built yet.
+    """
+    if not chunk_ids:
+        return []
+    client = get_client(store_path)
+    if COLLECTION_NAME not in {c.name for c in client.list_collections()}:
+        raise RuntimeError(
+            "Vector store is empty; run `python scripts/ingest_manuals.py` first."
+        )
+    # No embedding function needed: a lookup by id never embeds anything.
+    collection = client.get_collection(COLLECTION_NAME)
+    result = collection.get(ids=chunk_ids)
+    found = {
+        chunk_id: {
+            "chunk_id": chunk_id,
+            "text": text,
+            "source": meta["source"],
+            "section": meta["section"],
+        }
+        for chunk_id, text, meta in zip(
+            result["ids"], result["documents"], result["metadatas"], strict=True
+        )
+    }
+    return [found[i] for i in chunk_ids if i in found]
+
+
 def retrieve(
     query: str,
     top_k: int | None = None,

@@ -1,0 +1,214 @@
+{
+  "uid": "iot-telemetry",
+  "title": "Motor Telemetry",
+  "tags": [
+    "iot"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Voltage",
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "iot-sqlite"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "volt",
+          "custom": {
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "iot-sqlite"
+          },
+          "queryType": "time series",
+          "timeColumns": [
+            "time"
+          ],
+          "queryText": "SELECT CAST(strftime('%s', timestamp) AS INTEGER) AS time, voltage FROM telemetry WHERE CAST(strftime('%s', timestamp) AS INTEGER) BETWEEN $__from / 1000 AND $__to / 1000 ORDER BY time",
+          "rawQueryText": "SELECT CAST(strftime('%s', timestamp) AS INTEGER) AS time, voltage FROM telemetry WHERE CAST(strftime('%s', timestamp) AS INTEGER) BETWEEN $__from / 1000 AND $__to / 1000 ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Current",
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "iot-sqlite"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "amp",
+          "custom": {
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "iot-sqlite"
+          },
+          "queryType": "time series",
+          "timeColumns": [
+            "time"
+          ],
+          "queryText": "SELECT CAST(strftime('%s', timestamp) AS INTEGER) AS time, current FROM telemetry WHERE CAST(strftime('%s', timestamp) AS INTEGER) BETWEEN $__from / 1000 AND $__to / 1000 ORDER BY time",
+          "rawQueryText": "SELECT CAST(strftime('%s', timestamp) AS INTEGER) AS time, current FROM telemetry WHERE CAST(strftime('%s', timestamp) AS INTEGER) BETWEEN $__from / 1000 AND $__to / 1000 ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Power",
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "iot-sqlite"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatt",
+          "custom": {
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "iot-sqlite"
+          },
+          "queryType": "time series",
+          "timeColumns": [
+            "time"
+          ],
+          "queryText": "SELECT CAST(strftime('%s', timestamp) AS INTEGER) AS time, power_kw FROM telemetry WHERE CAST(strftime('%s', timestamp) AS INTEGER) BETWEEN $__from / 1000 AND $__to / 1000 ORDER BY time",
+          "rawQueryText": "SELECT CAST(strftime('%s', timestamp) AS INTEGER) AS time, power_kw FROM telemetry WHERE CAST(strftime('%s', timestamp) AS INTEGER) BETWEEN $__from / 1000 AND $__to / 1000 ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Temperature",
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "iot-sqlite"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "iot-sqlite"
+          },
+          "queryType": "time series",
+          "timeColumns": [
+            "time"
+          ],
+          "queryText": "SELECT CAST(strftime('%s', timestamp) AS INTEGER) AS time, temperature FROM telemetry WHERE CAST(strftime('%s', timestamp) AS INTEGER) BETWEEN $__from / 1000 AND $__to / 1000 ORDER BY time",
+          "rawQueryText": "SELECT CAST(strftime('%s', timestamp) AS INTEGER) AS time, temperature FROM telemetry WHERE CAST(strftime('%s', timestamp) AS INTEGER) BETWEEN $__from / 1000 AND $__to / 1000 ORDER BY time"
+        }
+      ]
+    }
+  ]
+}

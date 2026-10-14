@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from src.config import get_config
-from src.rag.retriever import RetrievedChunk, retrieve
+from src.rag.retriever import RetrievedChunk, get_chunks, retrieve
 
 MANUAL = "motor_fault_reference.md"
 
@@ -51,3 +51,27 @@ def test_top_k_defaults_to_config(manual_store):
 def test_retrieve_raises_if_store_not_ingested(tmp_path):
     with pytest.raises(RuntimeError, match="ingest_manuals"):
         retrieve("motor running hot", store_path=tmp_path)
+
+
+def test_get_chunks_returns_requested_chunks_in_order(manual_store):
+    hits = retrieve("motor running hot", top_k=3, store_path=manual_store)
+    wanted = [h.chunk_id for h in reversed(hits)]
+
+    chunks = get_chunks(wanted, store_path=manual_store)
+
+    assert [c["chunk_id"] for c in chunks] == wanted
+    by_id = {h.chunk_id: h for h in hits}
+    for chunk in chunks:
+        assert chunk["text"] == by_id[chunk["chunk_id"]].text
+        assert chunk["source"] == MANUAL
+        assert chunk["section"] == by_id[chunk["chunk_id"]].section
+
+
+def test_get_chunks_skips_unknown_ids_and_handles_empty(manual_store):
+    assert get_chunks([], store_path=manual_store) == []
+    assert get_chunks(["no::such::chunk"], store_path=manual_store) == []
+
+
+def test_get_chunks_raises_if_store_not_ingested(tmp_path):
+    with pytest.raises(RuntimeError, match="ingest_manuals"):
+        get_chunks(["motor_fault_reference::x"], store_path=tmp_path)
