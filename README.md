@@ -34,8 +34,8 @@ docker compose up --build
 This starts the simulated motor (publisher), the subscriber that stores and
 scores its readings, and two dashboards:
 
-- Streamlit (live view, anomaly list, diagnosis chat): http://localhost:8501
-  (set `APP_PORT` if 8501 is taken)
+- Streamlit (live view, anomaly list, diagnosis chat): http://localhost:8502
+  (set `APP_PORT` to publish it on a different host port)
 - Grafana (Motor Telemetry dashboard, login `admin` / `admin`): http://localhost:3000
 
 Without Docker: `streamlit run dashboard/app.py`, with the subscriber

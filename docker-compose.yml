@@ -1,6 +1,6 @@
 # app, subscriber and publisher are one image run three ways; `docker compose up`
 # starts the whole pipeline (simulated motor -> EMQX Cloud -> SQLite) plus the
-# two dashboards: Streamlit on :8501, Grafana on :3000 (admin / admin).
+# two dashboards: Streamlit on :8502, Grafana on :3000 (admin / admin).
 x-python-service: &python-service
   build: .
   image: iot-fault-assistant:latest
@@ -23,8 +23,8 @@ services:
   app:
     <<: *python-service
     ports:
-      # Set APP_PORT in .env or the shell if 8501 is taken on your machine.
-      - "${APP_PORT:-8501}:8501"
+      # Set APP_PORT in .env or the shell to publish it on a different host port.
+      - "${APP_PORT:-8502}:8502"
 
   subscriber:
     <<: *python-service

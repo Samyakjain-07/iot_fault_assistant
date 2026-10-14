@@ -1,0 +1,3 @@
+[server]
+# This project's own port; 8501 (Streamlit's default) is commonly taken by other apps.
+port = 8502
