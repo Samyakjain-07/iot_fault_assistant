@@ -12,12 +12,10 @@ x-python-service: &python-service
     OLLAMA_HOST: http://host.docker.internal:11434
   extra_hosts:
     - "host.docker.internal:host-gateway"
+  # The trained model, vector store and embedding model are baked into the
+  # image (see Dockerfile); only the SQLite file is shared between services.
   volumes:
     - ./database:/app/database
-    - ./models:/app/models
-    - ./rag_store:/app/rag_store
-    # Keeps the embedding model across restarts instead of re-downloading it.
-    - hf_cache:/root/.cache/huggingface
 
 services:
   app:
@@ -25,6 +23,18 @@ services:
     ports:
       # Set APP_PORT in .env or the shell to publish it on a different host port.
       - "${APP_PORT:-8502}:8502"
+    healthcheck:
+      # python:slim has no curl, so probe Streamlit's health endpoint with Python.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8502/_stcore/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
 
   subscriber:
     <<: *python-service
@@ -54,8 +64,9 @@ services:
     environment:
       - GF_INSTALL_PLUGINS=frser-sqlite-datasource
       - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/motor_telemetry.json
+      # Defaults to admin/admin for local use; set GRAFANA_ADMIN_PASSWORD in the
+      # environment (or .env) on any host that is reachable from the internet.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    restart: unless-stopped
     depends_on:
       - app
-
-volumes:
-  hf_cache:

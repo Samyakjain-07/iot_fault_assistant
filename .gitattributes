@@ -1,0 +1,2 @@
+# The EC2 user-data script runs under bash on Linux; CRLF line endings break its shebang.
+*.sh text eol=lf
