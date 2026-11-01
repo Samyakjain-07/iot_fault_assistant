@@ -33,7 +33,6 @@ class Config:
     mqtt_password: str
     mqtt_use_tls: bool
 
-    aws_region: str
     llm_backend: str
     ollama_model: str
     ollama_host: str
@@ -82,7 +81,6 @@ def load_config(
         mqtt_username=env.get("MQTT_USERNAME", ""),
         mqtt_password=env.get("MQTT_PASSWORD", ""),
         mqtt_use_tls=_as_bool(env.get("MQTT_USE_TLS", "true")),
-        aws_region=env.get("AWS_REGION", ""),
         llm_backend=env.get("LLM_BACKEND", "ollama"),
         ollama_model=env.get("OLLAMA_MODEL", "llama3.2:3b"),
         ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),

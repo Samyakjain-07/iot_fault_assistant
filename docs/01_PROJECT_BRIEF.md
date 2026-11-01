@@ -30,7 +30,7 @@ A system that does two things continuously:
   cites what it retrieved.
 - Two dashboards with different jobs: Streamlit for the diagnosis chat +
   operator view, Grafana for always-on live sensor visualization.
-- The whole thing containerized (Docker) and deployed (AWS), with CI
+- The whole thing containerized (Docker), with CI
   (GitHub Actions running pytest + ruff) and a test suite.
 
 ## Non-goals (for this project)

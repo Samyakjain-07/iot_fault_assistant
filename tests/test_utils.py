@@ -10,7 +10,6 @@ def _config(username="user", use_tls=True):
         mqtt_username=username,
         mqtt_password="secret",
         mqtt_use_tls=use_tls,
-        aws_region="",
         llm_backend="ollama",
         ollama_model="m",
         ollama_host="h",

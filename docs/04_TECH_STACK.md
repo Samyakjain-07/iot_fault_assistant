@@ -13,8 +13,7 @@
 | Testing | pytest | Standard, simple |
 | Linting | ruff | Fast, one consistent style (`pyproject.toml`) |
 | CI/CD | GitHub Actions | Runs ruff + pytest on every push/PR before merge |
-| Containerization | Docker (+ docker-compose for local dev) | Packages model, vector store and dashboard into one reproducible image |
-| Cloud deployment | AWS (ECS or a single EC2 instance) | Reuses the AWS account/IAM already set up from earlier RAG work |
+| Containerization | Docker (+ docker-compose) | Packages model, vector store, pipeline, and dashboards into reproducible containers |
 
 ## Deliberately deferred
 

@@ -220,7 +220,6 @@ def _config():
         mqtt_username="u",
         mqtt_password="p",
         mqtt_use_tls=True,
-        aws_region="",
         llm_backend="ollama",
         ollama_model="m",
         ollama_host="h",

@@ -6,7 +6,6 @@
 # Not needed inside the image (and keeps the build context small)
 tests
 docs
-deploy
 grafana
 docker-compose*.yml
 

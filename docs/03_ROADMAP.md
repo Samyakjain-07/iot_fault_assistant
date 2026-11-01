@@ -86,14 +86,13 @@ power/temperature panels over time).
 and a working diagnosis chat; `docker compose up` brings up the app +
 Grafana together and the Grafana dashboard renders real telemetry.
 
-## Phase 10 — Containerize & deploy (Week 10)
+## Phase 10 — Containerize & orchestrate (Week 10)
 
-**Build:** finalize the `Dockerfile` (multi-stage if it helps image size),
-confirm `docker-compose.yml` runs the full stack, add a deploy step/notes
-for pushing the image and running it on AWS (ECS task definition or a
-plain EC2 + `docker run`), finalize `README.md` with real run
-instructions.
+**Build:** finalize the `Dockerfile` (multi-stage build baking in the trained model
+and vector store), confirm `docker-compose.yml` runs the full stack (Streamlit,
+subscriber, publisher, Grafana), finalize `README.md` with complete setup and
+run instructions.
 
-**Definition of done:** the containerized app runs end-to-end on AWS and is
-reachable at a URL; CI still green; README accurately describes how to run
-both locally and how it's deployed.
+**Definition of done:** the containerized app runs end-to-end with Docker Compose;
+CI still green; README accurately describes project architecture, setup, and
+execution.
