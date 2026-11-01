@@ -1,4 +1,4 @@
-# 01 — Project Brief
+# 01 — Project Brief : “Knowledge-Driven IoT Fault Diagnosis Assistant (P_311)” 
 
 ## Problem
 
